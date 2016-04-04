@@ -14,8 +14,6 @@
 """
 
 import numpy as np
-import line_profiler
-import pdb
 
 # Auxiliary functions
 def Phi_multivariate(eta, theta):
@@ -92,7 +90,6 @@ class SpikeandslabEP(object):
 
         return m, Sigma
 
-    @profile
     def fit(self, X, y):
 
         # Store data and precompute
