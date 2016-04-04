@@ -8,7 +8,7 @@ reload(EP)
 
 
 # Number of unknowns and number of observations
-D, N = 1000, 500
+D, N = 5000, 2500
 
 # Hyperparameters
 p0 = 0.01

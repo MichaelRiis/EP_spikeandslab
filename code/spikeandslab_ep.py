@@ -14,6 +14,8 @@
 """
 
 import numpy as np
+import line_profiler
+import pdb
 
 # Auxiliary functions
 def Phi_multivariate(eta, theta):
@@ -49,6 +51,7 @@ class SpikeandslabEP(object):
 
         # Misc
         self.verbose = verbose
+        self.compute_full_covariance = False
 
     def compute_spike_and_slab_moments(self, gamma_bar, lambda_bar):
         r = np.log(1-self.p0) + log_npdf(0, gamma_bar/lambda_bar, 1./lambda_bar) - np.log(self.p0) - log_npdf(0, gamma_bar/lambda_bar, 1./lambda_bar + self.tau)
@@ -60,16 +63,16 @@ class SpikeandslabEP(object):
         return mx, vx
     
     # TODO: re-use computation of global approximation to speed up marginal likelihood computation
-    def compute_EP_marginal_likelihood(self, m, Sigma, gamma, lambda_, J, h):
+    def compute_EP_marginal_likelihood(self, m, sigma, gamma, lambda_, J, h):
 
-        lambda_bar, gamma_bar = 1./np.diag(Sigma)- lambda_, m/np.diag(Sigma) - gamma
+        lambda_bar, gamma_bar = 1./sigma - lambda_, m/sigma - gamma
 
         logZtilde = np.sum(Phi_univariate(gamma_bar + gamma, lambda_bar + lambda_)) - np.sum(Phi_univariate(gamma_bar, lambda_bar))
         logZ = np.sum(np.log((1 - self.p0)*npdf(0, gamma_bar/lambda_bar, 1./lambda_bar) + self.p0*npdf(0, gamma_bar/lambda_bar, 1./lambda_bar + self.tau)))
         
         return 0.5*self.D*np.log(2*np.pi) - 0.5*self.N*np.log(2*np.pi) - 0.5*self.N*np.log(self.sigma2) - 0.5*np.dot(self.y,self.y)/self.sigma2 + Phi_multivariate(h + gamma, J + np.diag(lambda_)) + logZ - logZtilde 
 
-    def update_global(self, gamma, lambda_, J, h):
+    def update_global(self, gamma, lambda_, J, h, diagonal_only = True):
 
         if(self.N > self.D):
             P = J + np.diag(lambda_)
@@ -78,11 +81,18 @@ class SpikeandslabEP(object):
         else: # Use Woodburys identity for D > N
             W = self.X/lambda_ # X*diag(1./lambda_)
             R  = np.linalg.solve(self.sigma2*np.identity(self.N) + np.dot(self.X, W.T), W) # Inverse term in woodburys
-            WtR = np.dot(W.T, R) 
-            m, Sigma = (h + gamma)/lambda_  - np.dot(WtR, h + gamma), np.diag(1./lambda_) - WtR
-    
+            
+            # Only compute diagonal of posterior covariance?
+            if(diagonal_only):
+                m = (h + gamma)/lambda_ - np.dot(W.T, np.dot(R, h + gamma))
+                Sigma = 1./lambda_ - np.sum(W*R, 0)
+            else:
+                WtR = np.dot(W.T, R) 
+                m, Sigma = (h + gamma)/lambda_  - np.dot(WtR, h + gamma), np.diag(1./lambda_) - WtR
+
         return m, Sigma
 
+    @profile
     def fit(self, X, y):
 
         # Store data and precompute
@@ -93,7 +103,7 @@ class SpikeandslabEP(object):
         self.N, self.D = X.shape
 
         # Initialize global approximation Q
-        m, Sigma = np.zeros(self.D), np.identity(self.D)
+        m, sigma = np.zeros(self.D), np.ones(self.D)
         m_old = m
         
         # Initialize site approximations
@@ -111,7 +121,7 @@ class SpikeandslabEP(object):
             for itt in range(self.max_itt):     
 
                 # Compute cavity
-                gamma_bar, lambda_bar = m/np.diag(Sigma) - gamma, 1./np.diag(Sigma) - lambda_
+                gamma_bar, lambda_bar = m/sigma - gamma, 1./sigma- lambda_
                 
                 # Compute matching moments
                 mx, vx = self.compute_spike_and_slab_moments(gamma_bar, lambda_bar)
@@ -124,7 +134,7 @@ class SpikeandslabEP(object):
                 gamma[mask], lambda_[mask] = (1-self.alpha)*gamma[mask]  + self.alpha*(mx[mask]/vx[mask] - gamma_bar[mask]), new_lambda[mask]
 
                 # Update global approximation
-                m, Sigma = self.update_global(gamma, lambda_, J, h)
+                m, sigma = self.update_global(gamma, lambda_, J, h)
                               
                 # Check for EP convergence  
                 ep_diff = np.linalg.norm(m-m_old)/np.linalg.norm(m)
@@ -135,18 +145,18 @@ class SpikeandslabEP(object):
                 m_old = m
 
             # Compute marginal likelihood approximation
-            L = self.compute_EP_marginal_likelihood(m, Sigma, gamma, lambda_, J, h)
+            L = self.compute_EP_marginal_likelihood(m, sigma, gamma, lambda_, J, h)
             self.LLs.append(L)
 
             # Optimize w.r.t. noise variance if desired
             sigma2_old = self.sigma2
             if(self.learn_sigma2):
-                self.sigma2 = (1-self.alpha)*self.sigma2 + self.alpha*np.mean((y - np.dot(X, m))**2  + np.dot(X**2, np.diag(Sigma)))  # Updates from Vila et al: 
+                self.sigma2 = (1-self.alpha)*self.sigma2 + self.alpha*np.mean((y - np.dot(X, m))**2  + np.dot(X**2, sigma))  # Updates from Vila et al: 
                 self.sigma2s.append(self.sigma2)
 
             if(self.learn_p0):
                 # Compute cavity
-                gamma_bar, lambda_bar = m/np.diag(Sigma) - gamma, 1./np.diag(Sigma) - lambda_
+                gamma_bar, lambda_bar = m/sigma - gamma, 1./sigma - lambda_
 
                 # Compute pseudo posterior support probabilities
                 r = np.log(1-self.p0) + log_npdf(0, gamma_bar/lambda_bar, 1./lambda_bar) - np.log(self.p0) - log_npdf(0, gamma_bar/lambda_bar, 1./lambda_bar + self.tau)
@@ -166,7 +176,16 @@ class SpikeandslabEP(object):
         if(self.verbose):
             print('Done in %d EM itt' % em_itt)
 
+
+        # Compute full covariance?
+        if(self.compute_full_covariance):
+            m, sigma = self.update_global(gamma, lambda_, J, h, diagonal_only = False)
+        else:
+            Sigma = np.diag(sigma)  
+
+        # Store
         self.m, self.Sigma, self.L = m, Sigma, L
         self.gamma, self.lambda_ = gamma, lambda_
 
+         # Return
         return m, Sigma, L
