@@ -1,7 +1,8 @@
 import numpy as np 
 import pylab as plt
-import time
+import sys
 
+sys.path.append('code')
 import spikeandslab_ep as EP
 reload(EP)
 
