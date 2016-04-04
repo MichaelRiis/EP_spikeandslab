@@ -1,5 +1,5 @@
 """ 
-    The class implements Expectation Propagation (EP) for linear Gaussian model with spike and slab prior, where the likelihood is given by
+    The class SpikeandslabEP implements Expectation Propagation (EP) for linear Gaussian model with spike and slab prior, where the likelihood is given by
 
         p(y|w) = N(y|Aw, sigma2*I),
 
@@ -40,7 +40,7 @@ class SpikeandslabEP(object):
 
         # Initial hyperparameters
         self.zeta, self.tau = 0., 1.
-        self.p0 = 0.5
+        self.p0 = 0.25
         self.sigma2 = 1.
 
         # Learn hyperparameters
@@ -68,7 +68,7 @@ class SpikeandslabEP(object):
         logZtilde = np.sum(Phi_univariate(gamma_bar + gamma, lambda_bar + lambda_)) - np.sum(Phi_univariate(gamma_bar, lambda_bar))
         logZ = np.sum(np.log((1 - self.p0)*npdf(0, gamma_bar/lambda_bar, 1./lambda_bar) + self.p0*npdf(0, gamma_bar/lambda_bar, 1./lambda_bar + self.tau)))
         
-        return 0.5*self.D*np.log(2*np.pi) - 0.5*self.N*np.log(2*np.pi) - 0.5*self.N*np.log(self.sigma2) - 0.5*np.dot(self.y,self.y)/self.sigma2 + Phi_multivariate(h + gamma, J + np.diag(lambda_)) + logZ - logZtilde 
+        return 0.5*self.D*np.log(2*np.pi) - 0.5*self.N*np.log(2*np.pi) - 0.5*self.N*np.log(self.sigma2) - 0.5*self.yty/self.sigma2 + Phi_multivariate(h + gamma, J + np.diag(lambda_)) + logZ - logZtilde 
 
     def update_global(self, gamma, lambda_, J, h, diagonal_only = True):
 
@@ -111,6 +111,10 @@ class SpikeandslabEP(object):
         # Outer EM iterations for learning noise variance
         for em_itt in range(self.max_em_itt):
 
+            # Store current values of hyperparameters
+            self.sigma2s.append(self.sigma2)
+            self.p0s.append(self.p0)
+
             # Pre-compute
             J, h = self.XtX/self.sigma2, self.Xty/self.sigma2
                 
@@ -149,7 +153,6 @@ class SpikeandslabEP(object):
             sigma2_old = self.sigma2
             if(self.learn_sigma2):
                 self.sigma2 = (1-self.alpha)*self.sigma2 + self.alpha*np.mean((y - np.dot(X, m))**2  + np.dot(X**2, sigma))  # Updates from Vila et al: 
-                self.sigma2s.append(self.sigma2)
 
             if(self.learn_p0):
                 # Compute cavity
@@ -159,7 +162,6 @@ class SpikeandslabEP(object):
                 r = np.log(1-self.p0) + log_npdf(0, gamma_bar/lambda_bar, 1./lambda_bar) - np.log(self.p0) - log_npdf(0, gamma_bar/lambda_bar, 1./lambda_bar + self.tau)
                 p_active = 1./(np.exp(r)+1)
                 self.p0 = (1-self.alpha)*self.p0 + self.alpha*np.mean(p_active)
-                self.p0s.append(self.p0)
 
             # Check for EM convergence
             sigma2_diff = np.abs(self.sigma2 - sigma2_old) 
