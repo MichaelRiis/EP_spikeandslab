@@ -73,11 +73,13 @@ class SpikeandslabEP(object):
     def update_global(self, gamma, lambda_, J, h, diagonal_only = True):
 
         if(self.N > self.D):
+            # TODO: Invert using cholesky
             P = J + np.diag(lambda_)
             m, Sigma = np.linalg.solve(P, h + gamma), np.linalg.inv(P)
 
         else: # Use Woodburys identity for D > N
             W = self.X/lambda_ # X*diag(1./lambda_)
+            # TODO: Invert using cholesky
             R  = np.linalg.solve(self.sigma2*np.identity(self.N) + np.dot(self.X, W.T), W) # Inverse term in woodburys
             
             # Only compute diagonal of posterior covariance?
