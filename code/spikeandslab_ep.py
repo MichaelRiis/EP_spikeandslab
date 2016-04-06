@@ -172,7 +172,7 @@ class SpikeandslabEP(object):
             if(self.verbose):
                 print 'EM itt %d: %4.3f with diff %6.5f/%6.5f and sigma2 = %4.3f and p0 = %6.5f (EP itt %d)' % (em_itt, L, sigma2_diff, ep_diff, self.sigma2, self.p0, itt)
 
-            if(ep_diff < self.tol and sigma2_diff < em_tol):
+            if(ep_diff < self.tol and sigma2_diff < self.em_tol):
                 break      
         
         if(self.verbose):
